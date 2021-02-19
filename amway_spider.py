@@ -1,3 +1,5 @@
+from splinter import Browser
+import base64
 import requests
 import re
 import json
@@ -7,8 +9,53 @@ import pyotp
 import requests
 import json
 import sys
+import json
+import mysql.connector
 
-from splinter import Browser
+mydb = mysql.connector.connect(
+    host="localhost",
+    user="root",
+    password="magento",
+    database="magento"
+)
+
+mycursor = mydb.cursor()
+
+sql = "SET FOREIGN_KEY_CHECKS = 0;"
+mycursor.execute(sql)
+sql = "TRUNCATE TABLE catalog_category_entity;"
+mycursor.execute(sql)
+sql = "TRUNCATE TABLE catalog_category_entity_decimal;"
+mycursor.execute(sql)
+sql = "TRUNCATE TABLE catalog_category_entity_datetime;"
+mycursor.execute(sql)
+sql = "TRUNCATE TABLE catalog_category_entity_int; "
+mycursor.execute(sql)
+sql = "TRUNCATE TABLE catalog_category_entity_text; "
+mycursor.execute(sql)
+sql = "TRUNCATE TABLE catalog_category_entity_varchar; "
+mycursor.execute(sql)
+sql = "TRUNCATE TABLE catalog_category_product; "
+mycursor.execute(sql)
+sql = "TRUNCATE TABLE catalog_category_product_index;"
+mycursor.execute(sql)
+sql = "INSERT INTO `catalog_category_entity` (`entity_id`, `attribute_set_id`, `parent_id`, `created_at`, `updated_at`, `path`, `position`, `level`, `children_count`) VALUES ('1', '0', '0', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '1', '0', '0', '1'),('2', '3', '1', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '1/2', '1', '1', '0');"
+mycursor.execute(sql)
+sql = "INSERT INTO `catalog_category_entity_int` (`value_id`, `attribute_id`, `store_id`, `entity_id`, `value`) VALUES ('1', '69', '0', '1', '1'),('2', '46', '0', '2', '1'),('3', '69', '0', '2', '1');"
+mycursor.execute(sql)
+sql = "INSERT INTO `catalog_category_entity_varchar` (`value_id`, `attribute_id`, `store_id`, `entity_id`, `value`) VALUES ('1', '45', '0', '1', 'Root Catalog'),('2', '45', '0', '2', 'Default Category');"
+mycursor.execute(sql)
+sql = "SET FOREIGN_KEY_CHECKS = 1;"
+mycursor.execute(sql)
+sql = "DELETE FROM url_rewrite WHERE entity_type = 'category';"
+mycursor.execute(sql)
+sql = "DELETE FROM `catalog_product_entity`;"
+mycursor.execute(sql)
+sql = "ALTER TABLE `catalog_product_entity` AUTO_INCREMENT =1;"
+mycursor.execute(sql)
+
+mydb.commit()
+
 executable_path = {'executable_path': '/usr/local/bin/chromedriver'}
 
 browser = Browser('chrome', **executable_path)
@@ -30,206 +77,189 @@ def request_dandan(url):
         return None
 
 
-def get_catalog(soup):
-    catalog_list = soup.find(class_='col-sm-9 tab-content').find_all('a')
-    catalog_list = list(filter(lambda x: '%' in x.attrs["href"], catalog_list))
-    for item in catalog_list:
+def get_catalog_level_3(soup, i, parent_id):
+    catalog_3_list = soup.find(id='navMenuTab' + str(i)).find_all('a')
+    catalog_3_list = list(
+        filter(lambda x: '%' in x.attrs["href"], catalog_3_list))
+
+    headers = {'content-type': 'application/json',
+               'Authorization': 'Bearer ' + token}
+
+    for item in catalog_3_list:
         if(item.attrs["title"] == 'カタログ・Amagram'):
             break
+        category_3 = {
+            "category": {
+                "parent_id": parent_id,
+                "name": item.attrs["title"],
+                "custom_attributes": [
+                    {
+                        "attribute_code": "url_key",
+                        "value": item.attrs["href"].split('/')[-1],
+                    },
+                ],
+                "is_active": True,
+                "position": 1,
+                "level": 3,
+                "include_in_menu": True
+            }
+        }
+        category_3_magento = requests.post(magento_url + '/index.php/rest/default/V1/categories',
+                                           data=json.dumps(category_3),
+                                           verify=False, headers=headers)
+
+        category_3_response_json_object = json.loads(category_3_magento.text)
+
         # 类目进入后数据
         html_catalog = request_dandan(home_url + item.attrs["href"])
         catalog_soup = BeautifulSoup(html_catalog, 'lxml')
-        get_page(catalog_soup)
+        get_page(catalog_soup, category_3_response_json_object['id'])
 
 
-def get_page(soup):
+def get_catalog_level_1_2(soup):
+    headers = {'content-type': 'application/json',
+               'Authorization': 'Bearer ' + token}
+    # amway category
+    category_1 = {
+        "category": {
+            "parent_id": 1,
+            "name": "アムウェイ",
+            "custom_attributes": [
+                {
+                    "attribute_code": "url_key",
+                    "value": "amway"
+                },
+            ],
+            "is_active": True,
+            "position": 1,
+            "level": 1,
+            "include_in_menu": True
+        }
+    }
+
+    response_from_magento = requests.post(magento_url + '/index.php/rest/default/V1/categories',
+                                          data=json.dumps(category_1),
+                                          verify=False, headers=headers)
+
+    catalog_2_list = soup.select(
+        '#overlay-menu-wrapper > div > div > div.col-sm-3.overlay-menu-headers > div > div > ul')[0].find_all('li')
+
+    for i in range(len(catalog_2_list)):
+        if i > 3:
+            break
+        # 更新magento的category
+        category_2 = {
+            "category": {
+                "parent_id": 3,
+                "name": catalog_2_list[i].text.strip(),
+                "custom_attributes": [
+                    {
+                        "attribute_code": "url_key",
+                        "value": str(101+i)
+                    },
+                ],
+                "is_active": True,
+                "position": 1,
+                "level": 2,
+                "include_in_menu": True
+            }
+        }
+        # response_from_magento = requests.get(magento_url + '/index.php/rest/default/V1/categories',
+        #                                       verify=False, headers=headers)
+        # print(response_from_magento.text)
+
+        category_2_response = requests.post(magento_url + '/index.php/rest/default/V1/categories',
+                                            data=json.dumps(category_2),
+                                            verify=False, headers=headers)
+        print(category_2_response.text)
+
+        category_2_response_json_object = json.loads(category_2_response.text)
+        get_catalog_level_3(soup, i, category_2_response_json_object['id'])
+
+
+def get_page(soup, category_id):
     page_list = soup.find(class_='product__listing product__list row js-query-result new-product__listing ditto-changeTo-sop').find_all(
         lambda tag: tag.name == "a" and tag.has_attr('target'))
     for item in page_list:
         # 拿到商品信息
-        get_product(home_url + item.attrs["href"])
+        get_product(home_url + item.attrs["href"], category_id)
 
 
-def get_product(url):
+def get_product(url, category_id):
     browser.visit(url)
     title = browser.find_by_xpath(
         '//*[@id="product-details-page"]/div[1]/div/div/div/div[1]').html
-    id_prefix = hash('amway') % ((sys.maxsize + 1) * 2)
     order_number = int(url.split('/')[-1])
-    product_id = id_prefix + order_number
-    sku = 'amway' + str(order_number)
-    price_text = browser.find_by_xpath(
-        '//*[@id="product-details-page"]/div[6]/div/div/div[2]/div[3]/p[2]').text
+    product_id = int('100' + str(order_number))
+    sku = 'amway-' + str(order_number)
+    price_text = browser.find_by_css(
+        '#product-details-page > div.col-sm-12.col-md-6.pdp-info.new-pdp-info > div > div > div:nth-child(2) > div.product-details > p.mob-top-border.price.retail-price-discount').text
     first_index = price_text.find(' ')
     second_index = price_text.find(' ', first_index + 1)
     price = int(price_text[first_index + 1:second_index].replace(',', ''))
+    description = browser.find_by_css(
+        '#product-details-page > div.col-sm-12.col-md-6.pdp-info.new-pdp-info > div > div > div:nth-child(2) > div.description > p').text
+
+    media_gallery_entry = []
+    image_tags = BeautifulSoup(browser.find_by_id(
+        'thumbnailSlider').html, 'lxml').find_all('img')
+    for i in range(len(image_tags)):
+        media_gallery_entry.append(
+            {
+                "media_type": 'image',
+                "label": "amway",
+                "position": i,
+                "disabled": False,
+                "types": ['thumbnail', 'small_image', 'image'],
+                "content": {
+                    "base64_encoded_data": base64.b64encode(requests.get(image_tags[i].attrs["data-zoom-url"]).content).decode('utf-8'),
+                    "type": "image/png",
+                    "name": sku + "-" + str(i) + ".png"
+                }
+            }
+        )
+
+    product_json = {
+        "product": {
+            "id": product_id,
+            "sku": sku,
+            "attribute_set_id": 9,
+            "name": title,
+            "price": price,
+            "status": 1,
+            "visibility": 1,
+            "type_id": "simple",
+            "weight": "0.8",
+            "extension_attributes": {
+                "category_links": [
+                    {
+                        "position": 0,
+                        "category_id": category_id
+                    }
+                ],
+                "stock_item": {
+                    "qty": "10",
+                    "is_in_stock": True
+                }
+            },
+            "custom_attributes": [
+                {
+                    "attribute_code": "description",
+                    "value": description
+                }
+            ],
+            "media_gallery_entries": media_gallery_entry
+        }
+    }
 
     # 然后登陆到magento去
     global token
     headers = {'content-type': 'application/json',
                'Authorization': 'Bearer ' + token}
     response_from_magento = requests.post(magento_url + '/index.php/rest/default/V1/products',
-                  data=json.dumps({
-                      "product": {
-                                  "id": product_id,
-                                  "sku": sku,
-                                  "name": title,
-                                  "price": price,
-                                  "status": 1,
-                                  "visibility": 1,
-                                  "type_id": "amway",
-                                  "weight": 1,
-                                  "extension_attributes": {
-                                      "website_ids": [
-                                          0
-                                      ],
-                                      "category_links": [
-                                          {
-                                              "position": 0,
-                                              "category_id": "string",
-                                              "extension_attributes": {}
-                                          }
-                                      ],
-                                      "stock_item": {
-                                          "item_id": 0,
-                                          "product_id": 0,
-                                          "stock_id": 0,
-                                          "qty": 0,
-                                          "is_in_stock": True,
-                                          "is_qty_decimal": True,
-                                          "use_config_min_qty": True,
-                                          "min_qty": 0,
-                                          "use_config_min_sale_qty": 0,
-                                          "min_sale_qty": 0,
-                                          "use_config_max_sale_qty": True,
-                                          "max_sale_qty": 0,
-                                          "use_config_backorders": True,
-                                          "backorders": 0,
-                                          "use_config_notify_stock_qty": True,
-                                          "notify_stock_qty": 0,
-                                          "use_config_qty_increments": True,
-                                          "qty_increments": 0,
-                                          "use_config_enable_qty_inc": True,
-                                          "enable_qty_increments": True,
-                                          "use_config_manage_stock": True,
-                                          "manage_stock": True,
-                                          "low_stock_date": "string",
-                                          "is_decimal_divided": True,
-                                          "stock_status_changed_auto": 0,
-                                          "extension_attributes": {}
-                                      },
-                                      "bundle_product_options": [
-                                          {
-                                              "option_id": 0,
-                                              "title": "string",
-                                              "required": True,
-                                              "type": "string",
-                                              "position": 0,
-                                              "sku": "string",
-                                              "product_links": [
-                                                  {
-                                                      "id": "string",
-                                                      "sku": "string",
-                                                      "option_id": 0,
-                                                      "qty": 0,
-                                                      "position": 0,
-                                                      "is_default": True,
-                                                      "price": 0,
-                                                      "price_type": 0,
-                                                      "can_change_quantity": 0,
-                                                      "extension_attributes": {}
-                                                  }
-                                              ],
-                                              "extension_attributes": {}
-                                          }
-                                      ],
-                                      "configurable_product_options": [
-                                          {
-                                              "id": 0,
-                                              "attribute_id": "string",
-                                              "label": "string",
-                                              "position": 0,
-                                              "is_use_default": True,
-                                              "values": [
-                                                  {
-                                                      "value_index": 0,
-                                                      "extension_attributes": {}
-                                                  }
-                                              ],
-                                              "extension_attributes": {},
-                                              "product_id": 0
-                                          }
-                                      ],
-                                      "configurable_product_links": [
-                                          0
-                                      ]
-                                  },
-                                  "product_links": [
-                                      {
-                                          "sku": "string",
-                                          "link_type": "string",
-                                          "linked_product_sku": "string",
-                                          "linked_product_type": "string",
-                                          "position": 0,
-                                          "extension_attributes": {
-                                              "qty": 0
-                                          }
-                                      }
-                                  ],
-                                  "options": [
-                                      {
-                                          "product_sku": "string",
-                                          "option_id": 0,
-                                          "title": "string",
-                                          "type": "string",
-                                          "sort_order": 0,
-                                          "is_require": True,
-                                          "price": 0,
-                                          "price_type": "string",
-                                          "sku": "string",
-                                          "file_extension": "string",
-                                          "max_characters": 0,
-                                          "image_size_x": 0,
-                                          "image_size_y": 0,
-                                          "values": [
-                                              {
-                                                  "title": "string",
-                                                  "sort_order": 0,
-                                                  "price": 0,
-                                                  "price_type": "string",
-                                                  "sku": "string",
-                                                  "option_type_id": 0
-                                              }
-                                          ],
-                                          "extension_attributes": {
-                                              "vertex_flex_field": "string"
-                                          }
-                                      }
-                                  ],
-                                  "tier_prices": [
-                                      {
-                                          "customer_group_id": 0,
-                                          "qty": 0,
-                                          "value": 0,
-                                          "extension_attributes": {
-                                              "percentage_value": 0,
-                                              "website_id": 0
-                                          }
-                                      }
-                                  ],
-                                  "custom_attributes": [
-                                      {
-                                          "attribute_code": "string",
-                                          "value": "string"
-                                      }
-                                  ]
-                                  },
-                      "saveOptions": True
-                  }),
-                  verify=False, headers=headers)
+                                          data=json.dumps(product_json),
+                                          verify=False, headers=headers)
     response_from_magento
-                
-
 
 
 def get_admin_token():
@@ -237,15 +267,14 @@ def get_admin_token():
     global token
     headers = {'content-type': 'application/json'}
     authenticate_response = requests.post(magento_url + '/index.php/rest/V1/tfa/provider/google/authenticate',
-                          data=json.dumps(
-                              {"username": "suhao1", "password": "suhao520", "otp": totp.now()}),
-                          verify=False, headers=headers)
+                                          data=json.dumps(
+                                              {"username": "suhao1", "password": "suhao520", "otp": totp.now()}),
+                                          verify=False, headers=headers)
     token = authenticate_response.json()
-
 
 
 if __name__ == "__main__":
     get_admin_token()
     html_home = request_dandan(home_url)
     soup = BeautifulSoup(html_home, 'lxml')
-    get_catalog(soup)
+    get_catalog_level_1_2(soup)
